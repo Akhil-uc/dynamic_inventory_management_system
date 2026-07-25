@@ -2,7 +2,7 @@
 
 ## Requirements
 
-Python 3.8+ (standard library only — no third-party dependencies).
+Python 3.8+
 
 ## Running the Application
 
