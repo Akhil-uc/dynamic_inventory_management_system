@@ -9,3 +9,38 @@ Python 3.8+
 ```bash
 python app.py
 ```
+# Running the Test 
+
+## Inventory Tests
+
+```bash
+py tests/test_inventory.py
+```
+
+## Indexed Priority Queue Tests
+
+```bash
+py tests/test_ipq.py
+```
+
+## Persistence Tests
+
+```bash
+py tests/test_persistence.py
+```
+
+## Concurrency Tests
+
+```bash
+py tests/test_concurrency.py
+```
+
+---
+
+## Performance Benchmark
+
+To compare the Phase 2 heap rebuild approach with the Phase 3 Indexed Priority Queue implementation, run:
+
+```bash
+py performance_test.py
+```
