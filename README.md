@@ -34,13 +34,3 @@ py tests/test_persistence.py
 ```bash
 py tests/test_concurrency.py
 ```
-
----
-
-## Performance Benchmark
-
-To compare the Phase 2 heap rebuild approach with the Phase 3 Indexed Priority Queue implementation, run:
-
-```bash
-py performance_test.py
-```
