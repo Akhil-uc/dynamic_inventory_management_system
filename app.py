@@ -1,5 +1,6 @@
 from product import Product
 from inventory import InventoryManager
+import persistence
 
 
 def menu():
@@ -14,11 +15,19 @@ def menu():
     print("6. Place Customer Order")
     print("7. Process Next Order")
     print("8. Display Low Stock Products")
-    print("9. Exit")
+    print("9. Save Inventory to Database")
+    print("10. Load Inventory from Database")
+    print("11. Exit")
     print("=" * 50)
 
 def main():
     inventory = InventoryManager()
+
+    if persistence.load_inventory(inventory):
+        print("Loaded existing inventory from database.\n")
+    else:
+        print("No saved inventory found - starting fresh.\n")
+
     while True:
         menu()
         choice = input("Enter your choice: ")
@@ -71,7 +80,16 @@ def main():
             )
             inventory.display_low_stock(threshold)
         elif choice == "9":
-            print("\nThank you for using the system.")
+            if persistence.save_inventory(inventory):
+                print("Inventory saved to database.\n")
+        elif choice == "10":
+            if persistence.load_inventory(inventory):
+                print("Inventory loaded from database.\n")
+            else:
+                print("No saved inventory found.\n")
+        elif choice == "11":
+            persistence.save_inventory(inventory)
+            print("\nInventory saved. Thank you for using the system.")
             break
         else:
             print("Invalid option.")
