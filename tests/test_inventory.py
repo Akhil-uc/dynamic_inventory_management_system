@@ -130,8 +130,6 @@ class TestOrderQueue(unittest.TestCase):
 
 
 class TestLowStockMinHeap(unittest.TestCase):
-    """Min-heap used to surface products that need restocking."""
-
     def setUp(self):
         self.inventory = InventoryManager()
         self.inventory.add_product(Product(301, "Notebook", "Office", 2, 2.50))
@@ -148,7 +146,7 @@ class TestLowStockMinHeap(unittest.TestCase):
         low_stock = self.inventory.display_low_stock(threshold=1)
         self.assertEqual(low_stock, [])
 
-    def test_heap_reflects_updates_after_rebuild(self):
+    def test_heap_reflects_updates(self):
         # Notebook restocked above threshold, Stapler drops below it
         self.inventory.update_product(301, quantity=100)
         self.inventory.update_product(302, quantity=1)
@@ -162,6 +160,11 @@ class TestLowStockMinHeap(unittest.TestCase):
         low_stock = self.inventory.display_low_stock(threshold=10)
         ids = {p.product_id for p in low_stock}
         self.assertEqual(ids, {303})
+
+    def test_low_stock_ascending_order(self):
+        low_stock = self.inventory.display_low_stock(threshold=10)
+        quantities = [p.quantity for p in low_stock]
+        self.assertEqual(quantities, sorted(quantities))
 
 
 if __name__ == "__main__":
