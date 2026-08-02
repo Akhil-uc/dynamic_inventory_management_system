@@ -1,5 +1,7 @@
+import threading
 from collections import deque
-import heapq
+
+from ipq import IndexedPriorityQueue
 
 
 class InventoryManager:
@@ -12,8 +14,14 @@ class InventoryManager:
         # Queue
         self.orders = deque()
 
-        # Min Heap
-        self.low_stock_heap = []
+        # Indexed Priority Queue (min-heap + lazy deletion, Phase 3)
+        self.low_stock_queue = IndexedPriorityQueue()
+
+        # Guards every mutating operation below so that concurrent
+        # requests from multiple users cannot interleave and corrupt
+        # the hash table, order queue, or priority queue. Re-entrant
+        # so a locking method can safely call another locking method.
+        self._lock = threading.RLock()
 
     
     # Product Functions (Hash Table)
@@ -26,20 +34,18 @@ class InventoryManager:
             bool: True if added, False if a product with that ID
                   already exists.
         """
+        with self._lock:
+            if product.product_id in self.products:
+                print("Product already exists.\n")
+                return False
 
-        if product.product_id in self.products:
-            print("Product already exists.\n")
-            return False
+            self.products[product.product_id] = product
+            self.low_stock_queue.push_or_update(
+                product.product_id, product.quantity
+            )
 
-        self.products[product.product_id] = product
-
-        heapq.heappush(
-            self.low_stock_heap,
-            (product.quantity, product.product_id)
-        )
-
-        print("Product added successfully.\n")
-        return True
+            print("Product added successfully.\n")
+            return True
 
     def search_product(self, product_id):
         """Look up a product by ID. O(1) average case.
@@ -47,15 +53,15 @@ class InventoryManager:
         Returns:
             Product | None
         """
+        with self._lock:
+            product = self.products.get(product_id)
 
-        product = self.products.get(product_id)
+            if product:
+                print(product)
+            else:
+                print("Product not found.")
 
-        if product:
-            print(product)
-        else:
-            print("Product not found.")
-
-        return product
+            return product
 
     def update_product(self, product_id,
                        quantity=None,
@@ -66,31 +72,32 @@ class InventoryManager:
             bool: True if updated, False if the product does not exist
                   or the new quantity/price is invalid (negative).
         """
+        with self._lock:
+            if product_id not in self.products:
+                print("Product not found.\n")
+                return False
 
-        if product_id not in self.products:
-            print("Product not found.\n")
-            return False
+            if quantity is not None and quantity < 0:
+                print("Quantity cannot be negative.\n")
+                return False
 
-        if quantity is not None and quantity < 0:
-            print("Quantity cannot be negative.\n")
-            return False
+            if price is not None and price < 0:
+                print("Price cannot be negative.\n")
+                return False
 
-        if price is not None and price < 0:
-            print("Price cannot be negative.\n")
-            return False
+            product = self.products[product_id]
 
-        product = self.products[product_id]
+            if quantity is not None:
+                product.quantity = quantity
+                # O(log n) amortized -- Phase 2 rebuilt the entire
+                # heap here; Phase 3 only touches this one entry.
+                self.low_stock_queue.push_or_update(product_id, quantity)
 
-        if quantity is not None:
-            product.quantity = quantity
+            if price is not None:
+                product.price = price
 
-        if price is not None:
-            product.price = price
-
-        self.rebuild_heap()
-
-        print("Product updated successfully.\n")
-        return True
+            print("Product updated successfully.\n")
+            return True
 
     def delete_product(self, product_id):
         """Remove a product from the hash table. O(1) average case.
@@ -98,17 +105,16 @@ class InventoryManager:
         Returns:
             bool: True if deleted, False if the product did not exist.
         """
+        with self._lock:
+            if product_id not in self.products:
+                print("Product not found.\n")
+                return False
 
-        if product_id not in self.products:
-            print("Product not found.\n")
-            return False
+            del self.products[product_id]
+            self.low_stock_queue.remove(product_id)
 
-        del self.products[product_id]
-
-        self.rebuild_heap()
-
-        print("Product deleted successfully.\n")
-        return True
+            print("Product deleted successfully.\n")
+            return True
 
     def display_inventory(self):
         """Print every product currently in the hash table.
@@ -116,18 +122,18 @@ class InventoryManager:
         Returns:
             list[Product]: the products displayed.
         """
+        with self._lock:
+            print("\n INVENTORY \n")
 
-        print("\n INVENTORY \n")
+            if not self.products:
+                print("Inventory is empty.\n")
+                return []
 
-        if not self.products:
-            print("Inventory is empty.\n")
-            return []
+            for product in self.products.values():
+                print(product)
 
-        for product in self.products.values():
-            print(product)
-
-        print()
-        return list(self.products.values())
+            print()
+            return list(self.products.values())
 
     
     # Order Queue (FIFO)
@@ -140,19 +146,19 @@ class InventoryManager:
             bool: True if the order was queued, False if the product
                   ID is invalid or quantity is not positive.
         """
+        with self._lock:
+            if product_id not in self.products:
+                print("Invalid Product ID.\n")
+                return False
 
-        if product_id not in self.products:
-            print("Invalid Product ID.\n")
-            return False
+            if quantity <= 0:
+                print("Order quantity must be greater than zero.\n")
+                return False
 
-        if quantity <= 0:
-            print("Order quantity must be greater than zero.\n")
-            return False
+            self.orders.append((product_id, quantity))
 
-        self.orders.append((product_id, quantity))
-
-        print("Order placed successfully.\n")
-        return True
+            print("Order placed successfully.\n")
+            return True
 
     def process_order(self):
         """Dequeue and fulfil the oldest pending order. O(1) dequeue.
@@ -164,68 +170,52 @@ class InventoryManager:
                   {"status": "insufficient_stock", "product_id",
                   "requested", "available"} if stock was too low.
         """
+        with self._lock:
+            if not self.orders:
+                print("No pending orders.\n")
+                return {"status": "empty"}
 
-        if not self.orders:
-            print("No pending orders.\n")
-            return {"status": "empty"}
+            product_id, quantity = self.orders.popleft()
 
-        product_id, quantity = self.orders.popleft()
+            product = self.products[product_id]
 
-        product = self.products[product_id]
+            if product.quantity >= quantity:
 
-        if product.quantity >= quantity:
+                product.quantity -= quantity
+                self.low_stock_queue.push_or_update(
+                    product_id, product.quantity
+                )
 
-            product.quantity -= quantity
+                print(
+                    f"Processed Order:"
+                    f" {quantity} x {product.name}"
+                )
 
-            print(
-                f"Processed Order:"
-                f" {quantity} x {product.name}"
-            )
+                result = {
+                    "status": "success",
+                    "product_id": product_id,
+                    "quantity": quantity,
+                }
 
-            result = {
-                "status": "success",
-                "product_id": product_id,
-                "quantity": quantity,
-            }
+            else:
 
-        else:
+                print(
+                    f"Insufficient stock for "
+                    f"{product.name}"
+                )
 
-            print(
-                f"Insufficient stock for "
-                f"{product.name}"
-            )
+                result = {
+                    "status": "insufficient_stock",
+                    "product_id": product_id,
+                    "requested": quantity,
+                    "available": product.quantity,
+                }
 
-            result = {
-                "status": "insufficient_stock",
-                "product_id": product_id,
-                "requested": quantity,
-                "available": product.quantity,
-            }
-
-        self.rebuild_heap()
-        return result
+            return result
 
     
-    # Min-Heap Functions
+    # Low-Stock Monitoring (Indexed Priority Queue)
     
-
-    def rebuild_heap(self):
-        """Rebuild the low-stock heap from scratch. O(n log n).
-
-        Needed because heapq has no O(log n) "update key" operation,
-        so any change to a product's quantity (update/delete/process
-        order) invalidates the existing heap entries.
-        """
-
-        self.low_stock_heap = []
-
-        for product in self.products.values():
-
-            heapq.heappush(
-                self.low_stock_heap,
-                (product.quantity,
-                 product.product_id)
-            )
 
     def display_low_stock(self, threshold=10):
         """Print (and return) every product at or below `threshold`.
@@ -233,22 +223,16 @@ class InventoryManager:
         Returns:
             list[Product]: low-stock products, ascending by quantity.
         """
+        with self._lock:
+            print("\n LOW STOCK PRODUCTS \n")
 
-        print("\n LOW STOCK PRODUCTS \n")
+            matches = self.low_stock_queue.items_at_or_below(threshold)
+            low_stock_products = [self.products[pid] for _, pid in matches]
 
-        temp_heap = self.low_stock_heap.copy()
+            for product in low_stock_products:
+                print(product)
 
-        low_stock_products = []
+            if not low_stock_products:
+                print("No low stock products.\n")
 
-        while temp_heap:
-
-            quantity, pid = heapq.heappop(temp_heap)
-
-            if quantity <= threshold:
-                low_stock_products.append(self.products[pid])
-                print(self.products[pid])
-
-        if not low_stock_products:
-            print("No low stock products.\n")
-
-        return low_stock_products
+            return low_stock_products
